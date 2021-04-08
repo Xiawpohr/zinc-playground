@@ -1,0 +1,170 @@
+use std::collections::MTreeMap;
+
+type Address = u160;
+type Balance = u248;
+type UInt8Array = [u8; 32];
+type IPFSHash = [u8; 34];
+
+contract ERC721 {
+    _name: UInt8Array;
+
+    _symbol: UInt8Array;
+
+    _totalSupply: Balance;
+
+    // Mapping from token ID to owner address
+    _owners: MTreeMap<field, Address>;
+
+    // Mapping owner address to token count
+    _balances: MTreeMap<Address, Balance>;
+
+    // Mapping from token ID to approved address
+    _tokenApprovals: MTreeMap<field, Address>;
+
+    // Mapping from token ID to content hash
+    _contentHash: MTreeMap<field, IPFSHash>;
+
+    pub fn new(name: UInt8Array, symbol: UInt8Array) -> Self {
+        Self {
+            _name: name,
+            _symbol: symbol,
+            _totalSupply: 0 as Balance,
+            _owners: MTreeMap,
+            _balances: MTreeMap,
+            _tokenApprovals: MTreeMap,
+            _contentHash: MTreeMap,
+        }
+    }
+
+    // Getters
+
+    pub fn name(self) -> UInt8Array {
+        self._name
+    }
+
+    pub fn symbol(self) -> UInt8Array {
+        self._symbol
+    }
+
+    pub fn totalSupply(self) -> Balance {
+        self._totalSupply
+    }
+
+    pub fn balanceOf(self, address: Address) -> Balance {
+        let mut balance: Balance = 0;
+        let (value, existed) = self._balances.get(address);
+        if existed {
+            balance = value;
+        }
+        balance
+    }
+
+    pub fn ownerOf(self, tokenId: field) -> Address {
+        let mut address: Address = 0;
+        let (value, existed) = self._owners.get(tokenId);
+        if existed {
+            address = value;
+        }
+        address
+    }
+
+    pub fn getApproved(self, tokenId: field) -> Address {
+        let mut address: Address = 0;
+        let (value, existed) = self._tokenApprovals.get(tokenId);
+        if existed {
+            address = value;
+        }
+        address
+    }
+
+    pub fn getContentHash(self, tokenId: field) -> IPFSHash {
+        let mut hash = [0 as u8; 34];
+        let (value, existed) = self._contentHash.get(tokenId);
+        if existed {
+            for i in 0..34 {
+                hash[i] = value[i];
+            }
+        }
+        hash
+    }
+
+
+    // Public methods
+
+    pub fn transferToken(mut self, to: Address, tokenId: field) -> bool {
+        self._transfer(zksync::msg.sender, to, tokenId);
+        true
+    }
+
+    pub fn transferTokenFrom(mut self, sender: Address, to: Address, tokenId: field) -> bool {
+        self._transfer(sender, to, tokenId);
+        true
+    }
+
+    pub fn approve(mut self, to: Address, tokenId: field) -> bool {
+        let owner: Address = self.ownerOf(tokenId);
+        require(to != owner, "ERC721: approval to current owner");
+        
+        self._approve(to, tokenId);
+        true
+    }
+
+    pub fn mint(mut self, contentHash: IPFSHash) -> bool {
+        self._mint(zksync::msg.sender, contentHash);
+        true
+    }
+
+    pub fn burn(mut self, tokenId: field) -> bool {
+        self._burn(tokenId);
+        true
+    }
+
+
+    // Private methods
+
+    fn _transfer(mut self, from: Address, to: Address, tokenId: field) {
+        require(from != 0, "ERC721: transfer from the zero address");
+        require(to != 0, "ERC721: transfer to the zero address");
+        require(self.ownerOf(tokenId) == from || self.getApproved(tokenId) == from, "ERC721: transfer of token that is not own");
+
+        self._approve(0 as Address, tokenId);
+
+        let fromBalance: Balance = self.balanceOf(from);
+        let toBalance: Balance = self.balanceOf(to);
+        self._balances.insert(from, fromBalance - 1);
+        self._balances.insert(to, toBalance + 1);
+        self._owners.insert(tokenId, to);
+    }
+
+    fn _approve(mut self, address: Address, tokenId: field) {
+        require(address != 0, "ERC721: approve to the zero address");
+
+        self._tokenApprovals.insert(tokenId, address);
+    }
+
+    fn _mint(mut self, account: Address, contentHash: IPFSHash) {
+        require(account != 0, "ERC721: mint to the zero address");
+
+        let (accountBalance, found) = self._balances.get(account);
+        self._balances.insert(account, accountBalance + 1);
+        self._totalSupply += 1 as Balance;
+        
+        let tokenId: field = self._totalSupply;
+        self._owners.insert(tokenId, account);
+        self._contentHash.insert(tokenId, contentHash);
+    }
+
+    fn _burn(mut self, tokenId: field) {
+        let owner: Address = self.ownerOf(tokenId);
+        self._approve(0 as Address, tokenId);
+
+        let (ownerBalance, found) = self._balances.get(owner);
+        self._balances.insert(owner, ownerBalance - 1);
+        self._totalSupply -= 1 as Balance;
+        self._owners.remove(tokenId);
+    }
+
+    fn _exists(self, tokenId: field) -> bool {
+        self._owners.contains(tokenId)
+    }
+}

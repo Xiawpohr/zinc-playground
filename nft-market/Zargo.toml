@@ -1,0 +1,7 @@
+[project]
+name = 'auction-market'
+type = 'contract'
+version = '0.1.0'
+
+[dependencies]
+erc721 = '0.1.3'

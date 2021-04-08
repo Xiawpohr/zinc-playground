@@ -1,0 +1,6 @@
+[project]
+name = 'erc721'
+type = 'contract'
+version = '0.1.3'
+
+[dependencies]

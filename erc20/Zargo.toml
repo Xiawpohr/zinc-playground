@@ -1,0 +1,6 @@
+[project]
+name = 'zinc-erc20-20210405'
+type = 'contract'
+version = '0.1.2'
+
+[dependencies]

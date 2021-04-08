@@ -1,0 +1,164 @@
+use std::collections::MTreeMap;
+
+type Address = u160;
+type Balance = u248;
+type UInt8Array = [u8; 32];
+
+const maxUint124: u248 = 21267647932558653966460912964485513215;
+
+// Cantor pairing function
+// https://en.wikipedia.org/wiki/Pairing_function
+// https://www.vertexfragment.com/ramblings/cantor-szudzik-pairing-functions/
+fn generateUniqueId(a0: u248, b0: u248) -> u248 {
+    let a = a0 % maxUint124;
+    let b = b0 % maxUint124;
+    if (a < b) {
+        a + b * b
+    } else {
+        a * a + a + b
+    }
+}
+
+contract Erc20 {
+
+    _name: UInt8Array;
+
+    _symbol: UInt8Array;
+
+    _decimal: u8;
+
+    _totalSupply: Balance;
+
+    _balances: MTreeMap<Address, Balance>;
+
+    _allowances: MTreeMap<u248, Balance>;
+
+    pub fn new(name: UInt8Array, symbol: UInt8Array, decimal: u8) -> Self {
+        require(decimal <= 18, "ERC20: decimal cannot be higher than 18");
+
+        Self {
+            _name: name,
+            _symbol: symbol,
+            _decimal: decimal,
+            _totalSupply: 0 as Balance,
+            _balances: MTreeMap,
+            _allowances: MTreeMap,
+        }
+    }
+
+    // Getters
+
+    pub fn name(self) -> UInt8Array {
+        self._name
+    }
+
+    pub fn symbol(self) -> UInt8Array {
+        self._symbol
+    }
+
+    pub fn decimal(self) -> u8 {
+        self._decimal
+    }
+
+    pub fn totalSupply(self) -> Balance {
+        self._totalSupply
+    }
+
+    pub fn balanceOf(self, address: Address) -> Balance {
+        let mut balance: Balance = 0;
+        let (value, existed) = self._balances.get(address);
+        if existed {
+            balance = value;
+        }
+        balance
+    }
+
+    pub fn allowanceOf(self, owner: Address, sender: Address) -> Balance {
+        let mut allowance: Balance = 0;
+        let allowanceId: u248 = generateUniqueId(owner as u248, sender as u248);
+        let (value, existed) = self._allowances.get(allowanceId);
+        if existed {
+            allowance = value;
+        }
+        allowance
+    }
+
+    // Public methods
+
+    pub fn transferToken(mut self, recipient: Address, amount: Balance) -> bool {
+        self._transfer(zksync::msg.sender, recipient, amount);
+        true
+    }
+
+    pub fn transferTokenForm(mut self, sender: Address, recipient: Address, amount: Balance) -> bool {
+        self._transfer(sender, recipient, amount);
+        self.decreaseAllowance(sender, amount);
+        true
+    }
+
+    pub fn approve(mut self, sender: Address, amount: Balance) -> bool {
+        self._approve(zksync::msg.sender, sender, amount);
+        true
+    }
+
+    pub fn increaseAllowance(mut self, sender: Address, addedValue: Balance) -> bool {
+        let currentAllowance: Balance = self.allowanceOf(zksync::msg.sender, sender);
+        self._approve(zksync::msg.sender, sender, currentAllowance + addedValue);
+        true
+    }
+
+    pub fn decreaseAllowance(mut self, sender: Address, subtractedValue: Balance) -> bool {
+        let currentAllowance: Balance = self.allowanceOf(zksync::msg.sender, sender);
+        require(currentAllowance >= subtractedValue, "ERC20: decreased allowance below zero");
+        self._approve(zksync::msg.sender, sender, currentAllowance - subtractedValue);
+        true
+    }
+
+    pub fn mint(mut self, account: Address, amount: Balance) -> bool {
+        self._mint(account, amount);
+        true
+    }
+
+    pub fn burn(mut self, account: Address, amount: Balance) -> bool {
+        self._burn(account, amount);
+        true
+    }
+
+    // Private methods
+
+    fn _transfer(mut self, sender: Address, recipient: Address, amount: Balance) {
+        require(sender != 0, "ERC20: transfer from the zero address");
+        require(recipient != 0, "ERC20: transfer to the zero address");
+
+        let senderBalance: Balance = self.balanceOf(sender);
+        let recipientBalance: Balance = self.balanceOf(recipient);
+        require(senderBalance >= amount, "ERC20: transfer amount exceeds balance");
+        self._balances.insert(sender, senderBalance - amount);
+        self._balances.insert(recipient, recipientBalance + amount);
+    }
+
+    fn _approve(mut self, owner: Address, sender: Address, amount: Balance) {
+        require(owner != 0, "ERC20: approve from the zero address");
+        require(sender != 0, "ERC20: approve to the zero address");
+
+        let allowanceId: u248 = generateUniqueId(owner as u248, sender as u248);
+        self._allowances.insert(allowanceId, amount);
+    }
+
+    fn _mint(mut self, account: Address, amount: Balance) {
+        require(account != 0, "ERC20: mint to the zero address");
+
+        let (accountBalance, found) = self._balances.get(account);
+        self._balances.insert(account, accountBalance + amount);
+        self._totalSupply += amount;
+    }
+
+    fn _burn(mut self, account: Address, amount: Balance) {
+        require(account != 0, "ERC20: burn from the zero address");
+
+        let (accountBalance, found) = self._balances.get(account);
+        require(accountBalance >= amount, "ERC20: burn amount exceeds balance");
+        self._balances.insert(account, accountBalance - amount);
+        self._totalSupply -= amount;
+    }
+}

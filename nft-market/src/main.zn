@@ -1,0 +1,152 @@
+use std::collections::MTreeMap;
+use erc721::ERC721;
+
+type Address = u160;
+type Balance = u248;
+
+enum AskState {
+    onSale = 0,
+    finished = 1,
+    canceled = 2,
+}
+
+struct Ask {
+    tokenId: field,
+    timestamp: u64,
+    state: AskState,
+}
+
+impl Ask {
+    pub fn finish(mut self) -> Self {
+        self.state = AskState::finished;
+        self
+    }
+    
+    pub fn cancel(mut self) -> Self {
+        self.state = AskState::canceled;
+        self
+    }
+}
+
+struct Bid {
+    tokenId: field,
+    bidder: Address,
+    amount: Balance,
+    timestamp: u64,
+}
+
+const TOKEN_ADDRESS: Address = 0x92f4b6b7c841ba36a810d17e5c2b76e91c132111;
+
+contract NFTMarket {
+
+    // pub const TOKEN_ADDRESS: Address = 0x40a3640f2cddffdd0c3b670c1c3740438bd9e083;
+
+    pub manager: Address;
+
+    pub fee: u64;
+
+    // mapping from tokenId to ask
+    _tokenAsks: MTreeMap<field, Ask>;
+
+    // mapping from tokenId to max bidder
+    _tokenMaxBid: MTreeMap<field, Bid>;
+
+    // mapping from tokenId to bid history
+    // _tokenBidHistory: MTreeMap<field, [Bid; 100]>;
+
+    pub fn new(fee: u64) -> Self {
+        Self {
+            manager: zksync::msg.sender,
+            fee: fee,
+            _tokenAsks: MTreeMap,
+            _tokenMaxBid: MTreeMap,
+            // _tokenBidHistory: MTreeMap,
+        }
+    }
+
+    pub fn putOnSale(mut self, tokenId: field, timestamp: u64) -> bool {
+        let asset = ERC721::fetch(TOKEN_ADDRESS);
+        require(asset.ownerOf(tokenId) == zksync::msg.sender, "only owner can sell");
+
+        let ask = Ask {
+            tokenId: tokenId,
+            timestamp: timestamp,
+            state: AskState::onSale,
+        };
+        self._tokenAsks.insert(tokenId, ask);
+        true
+    }
+
+    pub fn cancelSale(mut self, tokenId: field) -> bool {
+        let (mut ask, existed) = self._tokenAsks.get(tokenId);
+        if existed {
+            ask.cancel();
+            self._tokenAsks.insert(tokenId, ask);
+        }
+        true
+    }
+
+    pub fn bid(mut self, tokenId: field, timestamp: u64) -> bool {
+        require(zksync::msg.recipient == self.address, "Transaction recipient is not the contract",);
+
+        let (ask, askExisted) = self._tokenAsks.get(tokenId);
+        require(askExisted, "token is not in the market");
+        if askExisted {
+            require(ask.state == AskState::onSale, "token is not on sale");
+        }
+
+        let (maxBid, maxBidExisted) = self._tokenMaxBid.get(tokenId);
+        if maxBidExisted {
+            require(zksync::msg.amount > maxBid.amount, "bid amount is less then previous bid");
+        }
+        self.transfer(maxBid.bidder, 0, maxBid.amount);
+        
+        let bid = Bid {
+            tokenId: tokenId,
+            bidder: zksync::msg.sender,
+            amount: zksync::msg.amount,
+            timestamp: timestamp,
+        };
+        // self._tokenBidHistory.insert(tokenId, bid);
+        self._tokenMaxBid.insert(tokenId, bid);
+        true
+    }
+
+    pub fn cancelBid(mut self, tokenId: field) -> bool {
+        let (maxBid, maxBidExisted) = self._tokenMaxBid.get(tokenId);
+        if maxBidExisted {
+            require(zksync::msg.sender == maxBid.bidder, "only max bidder can cancel bid");
+        }
+        self.transfer(maxBid.bidder, 0, maxBid.amount);
+        self._tokenMaxBid.remove(tokenId);
+        true
+    }
+
+    pub fn acceptBid(mut self, tokenId: field) -> bool {
+        let mut asset = ERC721::fetch(TOKEN_ADDRESS);
+        let assetOwner: Address = asset.ownerOf(tokenId);
+        require(assetOwner == zksync::msg.sender, "only owner can sell");
+
+        let (mut ask, askExisted) = self._tokenAsks.get(tokenId);
+        require(askExisted, "token is not in the market");
+        if askExisted {
+            require(ask.state == AskState::onSale, "token is not on sale");
+            ask.finish();
+        }
+
+        let (maxBid, maxBidExisted) = self._tokenMaxBid.get(tokenId);
+        self.transfer(assetOwner, 0, maxBid.amount);
+        asset.transferTokenFrom(assetOwner, maxBid.bidder, tokenId);
+        self._tokenMaxBid.remove(tokenId);
+        true
+    }
+
+    // pub fn getBidsByTokenId(self, tokenId: field) -> [Bid; 100] {
+    //     let (bids, found) = self._tokenBidHistory.get(tokenId);
+    //     bids
+    // }
+
+    pub fn claimFee() -> bool {
+        true
+    }
+}
